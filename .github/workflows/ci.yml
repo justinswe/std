@@ -1,0 +1,36 @@
+name: "Test"
+
+on:
+  push:
+    branches:
+      - "main"
+    tags:
+      - "*"
+  pull_request:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.head_ref || github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: "ubuntu-24.04"
+
+    steps:
+      - uses: "actions/checkout@v4"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # 6.5.0
+        with:
+          go-version-file: "go.mod"
+
+      - name: "Test"
+        run: |-
+          go test \
+            -count=1 \
+            -race \
+            -short \
+            -timeout=5m \
+            ./...
