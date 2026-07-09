@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/justinswe/std.svg)](https://pkg.go.dev/github.com/justinswe/std)
 
-Small, reusable Go utilities for command-line applications and error handling.
+Fast, easy to use Go utilities for command-line applications and error handling.
 
 ## Install
 
@@ -17,12 +17,14 @@ Or install only the package you need:
 ```sh
 go get github.com/justinswe/std/app
 go get github.com/justinswe/std/errors
+go get github.com/justinswe/std/retry
 ```
 
 ## Packages
 
 - [`app`](https://pkg.go.dev/github.com/justinswe/std/app) runs Cobra commands with structured logging, environment-backed flags, and graceful shutdown.
 - [`errors`](https://pkg.go.dev/github.com/justinswe/std/errors) creates stack-capturing errors and provides wrapping, inspection, and aggregation helpers.
+- [`retry`](https://pkg.go.dev/github.com/justinswe/std/retry) retries generic operations and HTTP requests with backoff, jitter, and conservative defaults.
 
 ### `app`
 
@@ -91,3 +93,73 @@ func main() {
 ```
 
 Other helpers include `New`, `Errorf`, `Wrapf`, `AsType`, `IsCanceled`, `Any`, `Join`, `Ignore`, and `IgnoreCtx`. See the [`errors` package reference](https://pkg.go.dev/github.com/justinswe/std/errors) for the complete API.
+
+### `retry`
+
+Use `NewHTTPClient` for HTTP retries with conservative defaults:
+
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/justinswe/std/retry"
+)
+
+func main() {
+	client := retry.NewHTTPClient(retry.WithMaxAttempts(3))
+
+	resp, err := client.Do(mustRequest("https://example.com"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+}
+
+func mustRequest(url string) *http.Request {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return req
+}
+```
+
+HTTP retries use exponential backoff with full jitter, retry transient transport errors and common retryable status codes, honor `Retry-After`, and only replay request bodies when `Request.GetBody` is available.
+
+For a fully configured HTTP client, pass the retry options when the client is created. This example tries each request at most five times, waits with exponential backoff starting at `100ms`, caps each calculated delay at `2s`, and applies full jitter so concurrent callers do not all retry at the same instant:
+
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/justinswe/std/retry"
+)
+
+func main() {
+	client := retry.NewHTTPClient(
+		retry.WithMaxAttempts(5),
+		retry.WithBackoff(retry.ExponentialBackoff(100*time.Millisecond, 2*time.Second)),
+		retry.WithJitter(retry.FullJitter),
+	)
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+}
+```
+
+`WithMaxAttempts(5)` means one initial call plus up to four retries. For non-HTTP work, use `retry.Do` or `retry.DoValue`; return `retry.Retryable(err)` for failures that should be retried, `retry.Permanent(err)` for failures that must stop immediately, or `nil` for success.
