@@ -268,6 +268,15 @@ func TestRunCommandRejectsInvalidLoggingFlags(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown format", func(t *testing.T) {
+		root := quietCommand("service")
+		root.SetArgs([]string{"--log-format=xml"})
+		root.Run = func(*cobra.Command, []string) {}
+		if err := runCommand(context.Background(), root, testRunConfig(nil)); err == nil {
+			t.Fatal("runCommand() error = nil, want error")
+		}
+	})
+
 	t.Run("local collision", func(t *testing.T) {
 		root := quietCommand("service")
 		root.Flags().Int(_logLevelFlag, 0, "collision")
@@ -320,7 +329,7 @@ func testRunConfig(logger *zap.Logger) runConfig {
 		notifyContext: func(ctx context.Context, _ ...os.Signal) (context.Context, context.CancelFunc) {
 			return context.WithCancel(ctx)
 		},
-		newLogger: func(zapcore.Level, bool) *zap.Logger { return logger },
+		newLogger: func(zapcore.Level, string, bool) *zap.Logger { return logger },
 	}
 }
 

@@ -2,10 +2,12 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -33,7 +35,7 @@ func TestPaddedLevel(t *testing.T) {
 func TestStructuredLogger(t *testing.T) {
 	t.Run("normal", func(t *testing.T) {
 		var output bytes.Buffer
-		logger := newStructuredLogger(zapcore.InfoLevel, false, &output, &output)
+		logger := newStructuredLogger(zapcore.InfoLevel, _formatConsole, false, &output, &output)
 		logger.Debug("hidden")
 		logger.Info("ready", zap.String("service", "test"))
 
@@ -51,7 +53,7 @@ func TestStructuredLogger(t *testing.T) {
 
 	t.Run("debug", func(t *testing.T) {
 		var output bytes.Buffer
-		logger := newStructuredLogger(zapcore.DebugLevel, false, &output, &output)
+		logger := newStructuredLogger(zapcore.DebugLevel, _formatConsole, false, &output, &output)
 		logger.Debug("details")
 		logger.Info("info")
 		logger.Warn("warn")
@@ -77,7 +79,7 @@ func TestStructuredLogger(t *testing.T) {
 
 	t.Run("debug format", func(t *testing.T) {
 		var output bytes.Buffer
-		logger := newStructuredLogger(zapcore.InfoLevel, true, &output, &output)
+		logger := newStructuredLogger(zapcore.InfoLevel, _formatConsole, true, &output, &output)
 		logger.Info("readable")
 		got := output.String()
 		if strings.Contains(got, "\033[") || !strings.HasSuffix(got, "\n\n") {
@@ -87,11 +89,58 @@ func TestStructuredLogger(t *testing.T) {
 
 	t.Run("stacktrace", func(t *testing.T) {
 		var output bytes.Buffer
-		logger := newStructuredLogger(zapcore.ErrorLevel, false, &output, &output)
+		logger := newStructuredLogger(zapcore.ErrorLevel, _formatConsole, false, &output, &output)
 		logger.Error("failed", zap.Error(errors.New("cause")))
 		got := output.String()
 		if !strings.Contains(got, "cause") || !strings.Contains(got, "logger_test.go") {
 			t.Errorf("error output lacks error or stack: %q", got)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		var output bytes.Buffer
+		logger := newStructuredLogger(zapcore.InfoLevel, _formatJSON, true, &output, &output)
+		logger.Warn("degraded", zap.String("service", "test"))
+		logger.Error("failed", zap.Error(errors.New("cause")))
+
+		lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("json output = %d lines, want 2: %q", len(lines), output.String())
+		}
+
+		var entry struct {
+			Severity  string `json:"severity"`
+			Message   string `json:"message"`
+			Timestamp string `json:"timestamp"`
+			Service   string `json:"service"`
+			Stack     string `json:"stack"`
+		}
+		if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+			t.Fatalf("json.Unmarshal(%q) error = %v", lines[0], err)
+		}
+		// WARNING, not zap's WARN: a collector that does not recognise the name files
+		// the entry as unclassified, which ranks a warning below an info.
+		if entry.Severity != "WARNING" {
+			t.Errorf("severity = %q, want WARNING", entry.Severity)
+		}
+		if entry.Message != "degraded" || entry.Service != "test" {
+			t.Errorf("message = %q, service = %q", entry.Message, entry.Service)
+		}
+		// debugFormat is console-only, so json must still carry a timestamp.
+		if _, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err != nil {
+			t.Errorf("time.Parse(RFC3339Nano, %q) error = %v", entry.Timestamp, err)
+		}
+
+		if err := json.Unmarshal([]byte(lines[1]), &entry); err != nil {
+			t.Fatalf("json.Unmarshal(%q) error = %v", lines[1], err)
+		}
+		if entry.Severity != "ERROR" {
+			t.Errorf("severity = %q, want ERROR", entry.Severity)
+		}
+		// The errors package supplies the useful stack as a field; zap's duplicate is
+		// off in json so an error entry stays small enough to write atomically.
+		if entry.Stack != "" {
+			t.Errorf("stack = %q, want empty", entry.Stack)
 		}
 	})
 }

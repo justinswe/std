@@ -11,14 +11,16 @@ import (
 )
 
 func BenchmarkStructuredLogger(b *testing.B) {
-	for _, level := range []zapcore.Level{zapcore.InfoLevel, zapcore.DebugLevel} {
-		b.Run(level.String(), func(b *testing.B) {
-			logger := newStructuredLogger(level, false, io.Discard, io.Discard)
-			b.ReportAllocs()
-			for b.Loop() {
-				logger.Info("request completed", zap.String("service", "benchmark"), zap.Int("status", 200))
-			}
-		})
+	for _, format := range []string{_formatConsole, _formatJSON} {
+		for _, level := range []zapcore.Level{zapcore.InfoLevel, zapcore.DebugLevel} {
+			b.Run(format+"/"+level.String(), func(b *testing.B) {
+				logger := newStructuredLogger(level, format, false, io.Discard, io.Discard)
+				b.ReportAllocs()
+				for b.Loop() {
+					logger.Info("request completed", zap.String("service", "benchmark"), zap.Int("status", 200))
+				}
+			})
+		}
 	}
 }
 

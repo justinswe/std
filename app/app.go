@@ -16,11 +16,15 @@ import (
 const (
 	_logLevelFlag    = "log-level"
 	_debugFormatFlag = "debug-format"
+	_logFormatFlag   = "log-format"
+
+	_formatConsole = "console"
+	_formatJSON    = "json"
 )
 
 type runConfig struct {
 	notifyContext func(context.Context, ...os.Signal) (context.Context, context.CancelFunc)
-	newLogger     func(zapcore.Level, bool) *zap.Logger
+	newLogger     func(zapcore.Level, string, bool) *zap.Logger
 }
 
 // RunCobraCommand executes root with environment-backed flags, structured
@@ -28,8 +32,8 @@ type runConfig struct {
 func RunCobraCommand(ctx context.Context, root *cobra.Command) error {
 	config := runConfig{
 		notifyContext: signal.NotifyContext,
-		newLogger: func(level zapcore.Level, debugFormat bool) *zap.Logger {
-			return newStructuredLogger(level, debugFormat, os.Stdout, os.Stderr)
+		newLogger: func(level zapcore.Level, format string, debugFormat bool) *zap.Logger {
+			return newStructuredLogger(level, format, debugFormat, os.Stdout, os.Stderr)
 		},
 	}
 
@@ -91,11 +95,22 @@ func addLoggingFlags(root *cobra.Command) error {
 		return err
 	}
 
-	return addPersistentFlag(root, _debugFormatFlag, "bool", func() {
+	if err := addPersistentFlag(root, _debugFormatFlag, "bool", func() {
 		root.PersistentFlags().Bool(
 			_debugFormatFlag,
 			false,
 			"Enable debug log formatting (no timestamps, extra spacing)",
+		)
+	}); err != nil {
+		return err
+	}
+
+	return addPersistentFlag(root, _logFormatFlag, "string", func() {
+		root.PersistentFlags().String(
+			_logFormatFlag,
+			_formatConsole,
+			"Log output format: console for a terminal, json for a log collector "+
+				"(json ignores --debug-format, which is a console concern)",
 		)
 	})
 }
@@ -116,7 +131,7 @@ func addPersistentFlag(root *cobra.Command, name, wantType string, add func()) e
 }
 
 type loggerState struct {
-	newLogger   func(zapcore.Level, bool) *zap.Logger
+	newLogger   func(zapcore.Level, string, bool) *zap.Logger
 	undo        func()
 	initialized bool
 }
@@ -139,7 +154,15 @@ func (s *loggerState) initialize(command *cobra.Command) error {
 		return fmt.Errorf("app: read --%s: %w", _debugFormatFlag, err)
 	}
 
-	logger := s.newLogger(zapcore.Level(level), debugFormat)
+	format, err := command.Flags().GetString(_logFormatFlag)
+	if err != nil {
+		return fmt.Errorf("app: read --%s: %w", _logFormatFlag, err)
+	}
+	if format != _formatConsole && format != _formatJSON {
+		return fmt.Errorf("app: --%s must be %s or %s, got %q", _logFormatFlag, _formatConsole, _formatJSON, format)
+	}
+
+	logger := s.newLogger(zapcore.Level(level), format, debugFormat)
 	s.undo = zap.ReplaceGlobals(logger)
 	s.initialized = true
 	logger.Info("Starting", zap.String("service", command.Root().Name()))

@@ -56,7 +56,9 @@ func main() {
 }
 ```
 
-The runner adds persistent `--log-level` and `--debug-format` flags. Numeric log levels range from `-1` (debug) through `5` (fatal). `--debug-format` removes timestamps and adds spacing intended for interactive debugging.
+The runner adds persistent `--log-level`, `--log-format`, and `--debug-format` flags. Numeric log levels range from `-1` (debug) through `5` (fatal). `--debug-format` removes timestamps and adds spacing intended for interactive debugging.
+
+`--log-format` selects `console` (the default, meant for a terminal) or `json`. JSON writes one object per line keyed `severity`, `message`, and `timestamp`, which are the names a log collector reads to classify an entry without being told how the program is configured; levels are the syslog names, so a warning is `WARNING` rather than zap's `WARN`. `--debug-format` is a console concern and is ignored under `json`.
 
 Every declared flag can be populated from an environment variable by converting its name to uppercase and replacing hyphens with underscores. For example, `LOG_LEVEL=-1` sets `--log-level=-1`. Configuration precedence is explicit CLI flag, process environment, the first `.env` file found, then the flag default. Invalid environment values and malformed `.env` files are returned as errors.
 
